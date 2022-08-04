@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::fmt::{Display, Formatter};
 use std::ops::Add;
 use pad::PadStr;
 
@@ -143,8 +144,10 @@ impl Add<StringBlock> for &str {
     }
 }
 
-pub fn join(iter: impl Iterator<Item=StringBlock>) -> StringBlock {
-    iter.fold(StringBlock::from_str(""), StringBlock::add)
+impl Display for StringBlock {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
 }
 
 #[cfg(test)]
