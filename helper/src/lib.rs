@@ -1,7 +1,9 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Attribute, Expr, ExprAssignOp, ExprBinary, ExprBlock, ExprCall, ExprCast, ExprField, ExprForLoop, ExprIf, ExprIndex, ExprLoop, ExprMatch, ExprMethodCall, ExprParen, ExprTryBlock, ExprUnary, ExprUnsafe, ExprWhile, Ident, UnOp};
+use syn::{Arm, Attribute, Block, Expr, ExprAssignOp, ExprBinary, ExprBlock, ExprCall, ExprCast, ExprField, ExprForLoop, ExprIf, ExprIndex, ExprLit, ExprLoop, ExprMatch, ExprMethodCall, ExprParen, ExprTryBlock, ExprUnary, ExprUnsafe, ExprWhile, Ident, Lit, Stmt, UnOp};
 use syn::__private::{Span, TokenStream2};
+use syn::parse::Parser;
+use syn::token::Semi;
 use crate::expression_transformer::{defaults, ExprTransformer, transform_box_expr};
 
 mod expression_transformer;
@@ -12,14 +14,24 @@ fn handle_attributes(attrs: &Vec<Attribute>) {
 
 #[proc_macro]
 pub fn explain(item: TokenStream) -> TokenStream {
-    let expr: Expr = syn::parse_macro_input!(item as Expr);
-    let mut tranformer = CodeTransformer { indent: 0, index: 1 };
+    let args_parsed = syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated
+        .parse(item)
+        .unwrap();
+    if args_parsed.len() != 2 {
+        panic!("Explain macros takes formatter and expression");
+    }
+    let (formatter, expr) = {
+        let mut it = args_parsed.into_iter();
+        (it.next().unwrap(), it.next().unwrap())
+    };
+    let mut tranformer = CodeTransformer { formatter, indent: 0, index: 1 };
     let x = tranformer.transform_expr(expr);
     quote!(#x).into()
 }
 
 
 struct CodeTransformer {
+    pub formatter: Expr,
     pub index: u32,
     pub indent: usize,
 }
@@ -36,6 +48,7 @@ fn explain_zero_arg(transformer: &mut CodeTransformer, expr: Expr) -> Expr {
     let cur_index = transformer.index.clone();
     transformer.index += 1;
     let indent = transformer.indent * TAB_SIZE;
+    let formatter = &transformer.formatter;
     quote_to_expr(quote! {
         {
             let x = #expr;
@@ -45,7 +58,7 @@ fn explain_zero_arg(transformer: &mut CodeTransformer, expr: Expr) -> Expr {
                 + format!("{}", #string)
                 + " => "
                 + format!("{}", x);
-            println!("{}", sb);
+            writeln!(#formatter, "{}", sb).unwrap();
             x
         }
     })
@@ -66,6 +79,7 @@ impl ExprTransformer for CodeTransformer {
         let cur_index = self.index.clone();
         self.index += 1;
         let indent = self.indent * TAB_SIZE;
+        let formatter = &self.formatter;
         return quote_to_expr(quote! {
             {
                 let left = &mut #left;
@@ -80,7 +94,7 @@ impl ExprTransformer for CodeTransformer {
                     + format!("{}", right)
                     + ") => ";
                 let res = *left #op_symbol right;
-                println!("{}", sb + format!("{}", left));
+                writeln!(#formatter, "{}", sb + format!("{}", left)).unwrap();
                 res
             }
         });
@@ -99,6 +113,7 @@ impl ExprTransformer for CodeTransformer {
         let cur_index = self.index.clone();
         self.index += 1;
         let indent = self.indent * TAB_SIZE;
+        let formatter = &self.formatter;
         return quote_to_expr(quote! {
             {
                 let left = #left;
@@ -113,7 +128,7 @@ impl ExprTransformer for CodeTransformer {
                     + format!("{}", right)
                     + " => ";
                 let res = left #op_symbol right;
-                println!("{}", sb + format!("{}", res));
+                writeln!(#formatter, "{}", sb + format!("{}", res)).unwrap();
                 res
             }
         });
@@ -134,6 +149,7 @@ impl ExprTransformer for CodeTransformer {
         let cur_index = self.index.clone();
         self.index += 1;
         let indent = self.indent * TAB_SIZE;
+        let formatter = &self.formatter;
         return quote_to_expr(quote! {
             {
                 let expr = #expr;
@@ -146,7 +162,7 @@ impl ExprTransformer for CodeTransformer {
                     + format!("{}", index)
                     + "] => ";
                 let res = expr[index];
-                println!("{}", sb + format!("{}", res));
+                writeln!(#formatter, "{}", sb + format!("{}", res)).unwrap();
                 res
             }
         });
@@ -164,6 +180,7 @@ impl ExprTransformer for CodeTransformer {
         let type_ = *cast.ty;
         let type_str = quote!(#type_).to_string();
         let indent = self.indent * TAB_SIZE;
+        let formatter = &self.formatter;
         return quote_to_expr(quote! {
             {
                 let expr = #expr;
@@ -175,7 +192,7 @@ impl ExprTransformer for CodeTransformer {
                     + format!("{}", expr)
                     + format!(" as {} => ", #type_str);
                 let res = expr as #type_;
-                println!("{}", sb + format!("{}", res));
+                writeln!(#formatter, "{}", sb + format!("{}", res)).unwrap();
                 res
             }
         });
@@ -193,6 +210,7 @@ impl ExprTransformer for CodeTransformer {
         let member = field.member;
         let member_str = quote!(#member).to_string();
         let indent = self.indent * TAB_SIZE;
+        let formatter = &self.formatter;
         return quote_to_expr(quote! {
             {
                 let expr = #expr;
@@ -204,16 +222,31 @@ impl ExprTransformer for CodeTransformer {
                     + format!("{}", expr)
                     + format!(".{} => ", #member_str);
                 let res = expr.#member;
-                println!("{}", sb + format!("{}", res));
+                writeln!(#formatter, "{}", sb + format!("{}", res)).unwrap();
                 res
             }
         });
     }
 
     fn transform_unary(&mut self, unary: ExprUnary) -> Expr {
+        if let ExprUnary { op: UnOp::Neg(_), expr, .. } = &unary {
+            if let Expr::Lit(ExprLit { lit, .. }) = &**expr {
+                match lit {
+                    Lit::Float(_) | Lit::Int(_) => return Expr::Unary(unary),
+                    _ => ()
+                }
+            }
+        } else if let ExprUnary { op: UnOp::Deref(_), .. } = &unary {
+            // 1. dereferencing is usually meaningless operation
+            // 2. pointers do not usually implement trait Display
+            // 3. It causes difficalties with necessety of mutability modifier
+            return Expr::Unary(unary)
+        }
+
         if !needs_intermediate_display(&unary.expr) {
             return explain_zero_arg(self, Expr::Unary(unary));
         }
+
         handle_attributes(&unary.attrs);
         let string = quote!(#unary).to_string();
         let expr = transform_box_expr(self, unary.expr);
@@ -222,6 +255,7 @@ impl ExprTransformer for CodeTransformer {
         let op_symbol = unary.op;
         let op_symbol_str = quote!(#op_symbol).to_string();
         let indent = self.indent * TAB_SIZE;
+        let formatter = &self.formatter;
         return quote_to_expr(quote! {
             {
                 let expr = #expr;
@@ -234,7 +268,7 @@ impl ExprTransformer for CodeTransformer {
                     + format!("{}", expr)
                     + ") => ";
                 let res = #op_symbol expr;
-                println!("{}", sb + format!("{}", res));
+                writeln!(#formatter, "{}", sb + format!("{}", res)).unwrap();
                 res
             }
         });
@@ -277,6 +311,7 @@ impl ExprTransformer for CodeTransformer {
         };
 
         let indent = self.indent * TAB_SIZE;
+        let formatter = &self.formatter;
         return quote_to_expr(quote! {
             {
                 #(#let_expressions);*;
@@ -290,7 +325,7 @@ impl ExprTransformer for CodeTransformer {
                     + #(format!("{}", #first))+* #(+ ", " + format!("{}", #rest))*
                     + ") => ";
                 let res = #function(#(#new_args),*);
-                println!("{}", sb + format!("{}", res));
+                writeln!(#formatter, "{}", sb + format!("{}", res)).unwrap();
                 res
             }
         });
@@ -337,6 +372,7 @@ impl ExprTransformer for CodeTransformer {
         };
 
         let indent = self.indent * TAB_SIZE;
+        let formatter = &self.formatter;
         return quote_to_expr(quote! {
             {
                 let receiver = #receiver;
@@ -351,7 +387,7 @@ impl ExprTransformer for CodeTransformer {
                     + #(format!("{}", #first))+* #(+ ", " + format!("{}", #rest))*
                     + ") => ";
                 let res = receiver.#function #turbofish(#(#new_args),*);
-                println!("{}", sb + format!("{}", res));
+                writeln!(#formatter, "{}", sb + format!("{}", res)).unwrap();
                 res
             }
         });
@@ -375,8 +411,13 @@ impl ExprTransformer for CodeTransformer {
 
     fn transform_for(&mut self, exp_for: ExprForLoop) -> Expr {
         let pattern = &exp_for.pat;
+        let pattern_str = quote!(#pattern).to_string();
         let expr = &*exp_for.expr;
-        self.named_block(&format!("for {} in {}", quote!(#pattern).to_string(), quote!(#expr).to_string()), Expr::ForLoop(exp_for))
+        let formatter = &self.formatter;
+        let indent = (self.indent + 1) * TAB_SIZE;
+        let mut stmts = vec![Stmt::Semi(Expr::Verbatim(quote! { writeln!(#formatter, "{}{} = {}:", " ".repeat(#indent), #pattern_str, #pattern).unwrap() }), Semi::default())];
+        stmts.extend(exp_for.body.stmts);
+        self.named_block(&format!("for {} in {}", quote!(#pattern).to_string(), quote!(#expr).to_string()), Expr::ForLoop(ExprForLoop { body: Block { stmts, ..exp_for.body }, ..exp_for }))
     }
 
     fn transform_loop(&mut self, exp_loop: ExprLoop) -> Expr {
@@ -399,7 +440,10 @@ impl ExprTransformer for CodeTransformer {
         let indent = self.indent * TAB_SIZE;
         self.indent += 1;
         let next_indent = self.indent * TAB_SIZE;
-        let cond_str = format!("if {}", { let c = &*if_expr.cond; quote!(#c).to_string() });
+        let cond_str = format!("if {}", {
+            let c = &*if_expr.cond;
+            quote!(#c).to_string()
+        });
         let cond = self.transform_expr(*if_expr.cond);
         let then_branch = self.transform_block(if_expr.then_branch);
         let else_branch = if_expr.else_branch.map(|x|
@@ -409,18 +453,20 @@ impl ExprTransformer for CodeTransformer {
             }
         );
         self.indent -= 1;
+        let formatter = &self.formatter;
         quote_to_expr(quote! {
             {
-                println!("{}{} {{", " ".repeat(#indent), #cond_str);
+                writeln!(#formatter, "{}{} {{", " ".repeat(#indent), #cond_str).unwrap();
                 let cond = #cond;
+                #[allow(unused_braces)]
                 let t = if cond {
-                    println!("{}then:", " ".repeat(#next_indent));
+                    writeln!(#formatter, "{}then:", " ".repeat(#next_indent)).unwrap();
                     #then_branch
                 } else {
-                    println!("{}else:", " ".repeat(#next_indent));
+                    writeln!(#formatter, "{}else:", " ".repeat(#next_indent)).unwrap();
                     #else_branch
                 };
-                println!("{}}}", " ".repeat(#indent));
+                writeln!(#formatter, "{}}}", " ".repeat(#indent)).unwrap();
                 t
             }
         })
@@ -430,7 +476,33 @@ impl ExprTransformer for CodeTransformer {
         let expr = &*match_expr.expr;
         self.named_block(&format!("match {}", quote!(#expr).to_string()), Expr::Match(match_expr))
     }
+
+    fn transform_arm(&mut self, arm: Arm) -> Arm {
+        let pat = &arm.pat;
+        let pat = quote!(#pat).to_string();
+        let formatter = &self.formatter;
+        let indent = self.indent * TAB_SIZE;
+        let stmt = Stmt::Semi(quote_to_expr(quote!(writeln!(#formatter, "{}pattern {}:", " ".repeat(#indent), #pat).unwrap())), Semi::default());
+        let arm_body = match *arm.body {
+            Expr::Block(b) => {
+                let mut stmts = vec![stmt];
+                stmts.extend(b.block.stmts.into_iter().map(|x| self.transform_statement(x)));
+                Expr::Block(ExprBlock { block: Block {stmts, ..b.block }, ..b })
+            }
+            e => {
+                let e = self.transform_expr(e);
+                quote_to_expr(quote!({ #stmt #e }))
+            }
+        };
+        Arm {
+            body: Box::new(arm_body),
+            guard: arm.guard.map(|x| (x.0, transform_box_expr(self, x.1))),
+            ..arm
+        }
+    }
 }
+
+
 
 impl CodeTransformer {
     fn named_block(&mut self, name: &str, expr: Expr) -> Expr {
@@ -439,11 +511,12 @@ impl CodeTransformer {
         let transformed = defaults::transform_children(self, expr);
         self.indent -= 1;
         let name_space = if name.is_empty() { String::from(name) } else { format!("{name} ") };
+        let formatter = &self.formatter;
         quote_to_expr(quote! {
             {
-                println!("{}{}{{", " ".repeat(#indent), #name_space);
+                writeln!(#formatter, "{}{}{{", " ".repeat(#indent), #name_space).unwrap();
                 let t = #transformed;
-                println!("{}}}", " ".repeat(#indent));
+                writeln!(#formatter, "{}}}", " ".repeat(#indent)).unwrap();
                 t
             }
         })
@@ -456,7 +529,14 @@ fn needs_intermediate_display(expression: &Expr) -> bool {
         Expr::AssignOp(_) | Expr::Binary(_) | Expr::Call(_) | Expr::Cast(_) | Expr::Field(_) | Expr::Index(_) | Expr::MethodCall(_) => true,
         Expr::Unary(u) => match u.op {
             UnOp::Deref(_) => false,
-            UnOp::Neg(_) | UnOp::Not(_) => true
+            UnOp::Neg(_) => match &*u.expr {
+                Expr::Lit(l) => match l.lit {
+                    Lit::Int(_) | Lit::Float(_) => false,
+                    _ => true
+                }
+                _ => true
+            },
+            UnOp::Not(_) => true
         }
         Expr::Paren(p) => needs_intermediate_display(&p.expr),
         Expr::Group(g) => needs_intermediate_display(&g.expr),
