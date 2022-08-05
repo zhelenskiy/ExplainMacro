@@ -21,6 +21,13 @@ pub struct StringBlock {
 }
 
 impl StringBlock {
+    pub fn new() -> StringBlock {
+        StringBlock {
+            lines: vec![],
+            width: 0,
+        }
+    }
+
     pub fn width(&self) -> usize { self.width }
     pub fn height(&self) -> usize { self.lines.len() }
 
@@ -137,6 +144,20 @@ impl Add<&str> for StringBlock {
     }
 }
 
+impl Add<String> for StringBlock {
+    type Output = StringBlock;
+    fn add(self, rhs: String) -> Self::Output {
+        self.add(rhs.as_str())
+    }
+}
+
+impl Add<StringBlock> for String {
+    type Output = StringBlock;
+    fn add(self, rhs: StringBlock) -> Self::Output {
+        self.as_str().add(rhs)
+    }
+}
+
 impl Add<StringBlock> for &str {
     type Output = StringBlock;
     fn add(self, rhs: StringBlock) -> Self::Output {
@@ -146,7 +167,7 @@ impl Add<StringBlock> for &str {
 
 impl Display for StringBlock {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self.make_string())
     }
 }
 

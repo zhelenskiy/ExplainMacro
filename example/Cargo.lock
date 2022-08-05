@@ -10,9 +10,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "helper"
+version = "0.1.0"
+dependencies = [
+ "pad",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "intermediate_expr_macro"
 version = "0.1.0"
 dependencies = [
+ "helper",
  "pad",
  "quote",
  "syn",

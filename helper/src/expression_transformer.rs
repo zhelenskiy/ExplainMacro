@@ -377,14 +377,11 @@ pub mod defaults {
     }
 
     pub fn transform_call(trans: &mut (impl ExprTransformer + ?Sized), call: ExprCall) -> Expr {
+        let func = transform_box_expr(trans, call.func);
         let args = call.args.into_iter()
             .map(|x| trans.transform_expr(x))
             .collect();
-        Expr::Call(ExprCall {
-            func: transform_box_expr(trans, call.func),
-            args,
-            ..call
-        })
+        Expr::Call(ExprCall { func, args, ..call })
     }
 
     pub fn transform_cast(trans: &mut (impl ExprTransformer + ?Sized), cast: ExprCast) -> Expr {
@@ -428,15 +425,12 @@ pub mod defaults {
     }
 
     pub fn transform_if(trans: &mut (impl ExprTransformer + ?Sized), if_expr: ExprIf) -> Expr {
+        let cond = transform_box_expr(trans, if_expr.cond);
+        let then_branch = trans.transform_block(if_expr.then_branch);
         let else_branch = if_expr.else_branch.map(|(else_token, x)|
             (else_token, transform_box_expr(trans, x))
         );
-        Expr::If(ExprIf {
-            cond: transform_box_expr(trans, if_expr.cond),
-            then_branch: trans.transform_block(if_expr.then_branch),
-            else_branch: else_branch,
-            ..if_expr
-        })
+        Expr::If(ExprIf { cond, then_branch, else_branch, ..if_expr })
     }
 
     pub fn transform_index(trans: &mut (impl ExprTransformer + ?Sized), index: ExprIndex) -> Expr {
