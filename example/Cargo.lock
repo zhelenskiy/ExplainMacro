@@ -15,6 +15,7 @@ version = "0.1.0"
 dependencies = [
  "pad",
  "quote",
+ "rust-format",
  "syn",
 ]
 
@@ -24,8 +25,6 @@ version = "0.1.0"
 dependencies = [
  "helper",
  "pad",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -54,6 +53,12 @@ checksum = "3bcdf212e9776fbcb2d23ab029360416bb1706b1aea2d1a5ba002727cbcab804"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "rust-format"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60e7c00b6c3bf5e38a880eec01d7e829d12ca682079f8238a464def3c4b31627"
 
 [[package]]
 name = "syn"

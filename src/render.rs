@@ -33,7 +33,7 @@ impl StringBlock {
 
     pub fn from_lines(lines: Vec<String>) -> StringBlock {
         assert!(lines.iter().all(|x| !x.contains('\n')));
-        let width = lines.iter().max_by_key(|x| x.len()).map(|x| x.len()).unwrap_or_default();
+        let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or_default();
         StringBlock { lines, width: width }
     }
 
