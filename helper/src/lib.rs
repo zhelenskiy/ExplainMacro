@@ -590,6 +590,12 @@ fn needs_intermediate_display(expression: &Expr) -> bool {
         }
         Expr::Paren(p) => needs_intermediate_display(&p.expr),
         Expr::Group(g) => needs_intermediate_display(&g.expr),
+        Expr::Block(b) => b.block.stmts.len() > 1 || b.block.stmts.len() == 1 && match &b.block.stmts[0] {
+            Stmt::Local(_) => false,
+            Stmt::Item(_) => false,
+            Stmt::Expr(e) => needs_intermediate_display(&e),
+            Stmt::Semi(e, _) => needs_intermediate_display(&e),
+        },
         _ => false
     }
 }

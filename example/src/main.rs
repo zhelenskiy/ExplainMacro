@@ -511,4 +511,32 @@ match 2 + 2 {
         assert_eq!(res.0, expected);
         assert_eq!(res.1, true);
     }
+
+    #[test]
+    fn multiline_arguments() {
+        let res = explain_string!(({{2 + 3}}) + {{4 + 5}});
+        let expected = &r#"
+{
+    {
+        1. 2 + 3 => 5
+    }
+}
+{
+    {
+        2. 4 + 5 => 9
+    }
+}
+3. ({            => 5 + 9 => 14
+       {
+           2 + 3
+       }
+   }) + {
+       {
+           4 + 5
+       }
+   }
+"#[1..];
+        assert_eq!(res.0, expected);
+        assert_eq!(res.1, 14);
+    }
 }
